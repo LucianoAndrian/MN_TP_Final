@@ -14,7 +14,9 @@ import warnings
 warnings.filterwarnings('ignore')
 plt.switch_backend('agg')
 ########################################################################################################################
-files_dir = './tp_final/WRF_CLM4/'
+esquema = 'Noah-MP'
+########################################################################################################################
+files_dir = './tp_final/WRF_' + esquema + '/'
 out_dir = './plots/'
 ########################################################################################################################
 
@@ -29,14 +31,14 @@ file_list = glob.glob(files_dir + 'wrfout_d02_*')   #Busco todos los wrfout en l
 file_list.sort()
 ntimes = len( file_list ) #Encuentro la cantidad de tiempos disponibles.
 
-for plot_time in range(60, len(file_list)):
+for plot_time in [17,41,65] :#range(12, len(file_list)):
     ncfile = Dataset(file_list[plot_time])
 
     # z = getvar(ncfile, "height",units='m')
     # [um , vm] = getvar(ncfile, "uvmet", units="m s-1")
-    tk = getvar(ncfile, "PBLH")
-    # tk2 = getvar(ncfile, "RAINNC")
-    # tk += tk2
+    tk = getvar(ncfile, "LH")
+    #tk2 = getvar(ncfile, "RAINNC")
+    #tk = tk[0,:,:]
 
     # Interpolamos verticalmente a la altura seleccionada
     # um_z = interplevel(um, z, nivel)
@@ -55,30 +57,31 @@ for plot_time in range(60, len(file_list)):
     # funcion to_np que toma el Xarray, extrae los datos como un array de numpy.
 
     # Creamos la figura.
-    dpi = 50
-    fig = plt.figure(figsize=(4, 4), dpi=dpi)
+    dpi = 150
+    fig = plt.figure(figsize=(5, 5), dpi=dpi)
     ax = plt.axes(projection=ccrs.PlateCarree(central_longitude=0))
     crs_latlon = ccrs.PlateCarree()
     ax.set_extent([-60, -57, -33, -36.5], crs_latlon)
 
     # Graficamos la temperatura en contornos
     levels = np.arange(np.round(to_np(t_z).min()) - 2., np.round(to_np(t_z).max()) + 2., 2.)
-    im = ax.contourf(lons, lats, to_np(t_z), levels=np.linspace(0, 2000, 1000), cmap='Spectral_r', extend='both')
+    im = ax.contourf(lons, lats, to_np(t_z), levels=np.linspace(-350, 350, 11), cmap='RdBu_r', extend='both')
     cb = plt.colorbar(im, fraction=0.042, pad=0.035, shrink=0.8)
     cb.ax.tick_params(labelsize=8)
     ax.add_feature(cartopy.feature.LAND, facecolor='lightgrey')
     ax.add_feature(cartopy.feature.COASTLINE)
     ax.add_feature(cartopy.feature.STATES)
-    ax.gridlines(crs=crs_latlon, linewidth=0.3, linestyle='-')
-    ax.set_xticks(np.arange(-60, -57, 10), crs=crs_latlon)
-    ax.set_yticks(np.arange(-33, -36, 6), crs=crs_latlon)
+    #ax.gridlines(crs=crs_latlon, linewidth=0.3, linestyle='-')
+    ax.set_xticks(np.linspace(-60, -57, 6), crs=crs_latlon)
+    ax.set_yticks(np.linspace(-33, -36, 6), crs=crs_latlon)
     lon_formatter = LongitudeFormatter(zero_direction_label=True)
     lat_formatter = LatitudeFormatter()
     ax.xaxis.set_major_formatter(lon_formatter)
     ax.yaxis.set_major_formatter(lat_formatter)
     ax.tick_params(labelsize=7)
-    plt.title('RAINCC(mm)' + ' t = ' + str(plot_time))
-    plt.savefig(out_dir + 'pic' + str(plot_time) + '.png')
+    ax.grid(color='k', alpha=0.3)
+    plt.title('TSK (ºC)' + ' h = ' + str(plot_time) + 'h')
+    plt.savefig(out_dir + esquema + '_PRUEBA_' + str(plot_time) + '.png')
     plt.close('all')
 
 #plt.show()
