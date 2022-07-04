@@ -1,5 +1,6 @@
 import glob
 import os
+import time
 
 os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 import warnings
@@ -19,8 +20,10 @@ import cartopy.crs as ccrs
 
 from wrf import getvar, interplevel, to_np, get_basemap, ll_to_xy, latlon_coords
 ########################################################################################################################
+
 def PlotFields(esquema, variable, tiempos, nivel_sfc_layer=0, dominio='02',
-               dpi=200, cmap='Spectral_r', escala=np.linspace(0,1,11), extend='both'):
+               dpi=200, cmap='Spectral_r', escala=np.linspace(0,1,11), extend='both',
+               temp_protec=True):
 
     if (not isinstance(esquema, str)) or (not isinstance(variable, str)):
         print('esquema y variable deben ser strings')
@@ -39,14 +42,24 @@ def PlotFields(esquema, variable, tiempos, nivel_sfc_layer=0, dominio='02',
         len(tiempos)
     except:
         tiempos = [tiempos]
+
+    if temp_protec:
+        """
+        aprox 15ºC menos
+        """
+        if len(tiempos) > 15:
+            time_sleep = 3
+        else:
+            time_sleep = 0
+
     # -----------------------------------------------------------------------------------------------------------------#
     #Fecha y hora para nombre y titulos
     from datetime import datetime, timedelta
     datelist = [datetime(2015, 8, 4, 0) + timedelta(hours=h) for h in range(0, 67)]
     # -----------------------------------------------------------------------------------------------------------------#
 
-
     for t in tiempos:
+        time.sleep(time_sleep)
         ncfile = Dataset(file_list[t])
         v = getvar(ncfile, variable)
 
@@ -57,6 +70,9 @@ def PlotFields(esquema, variable, tiempos, nivel_sfc_layer=0, dominio='02',
             print('sumando RAINNC')
             v2 = getvar(ncfile, 'RAINNC')
             v += v2
+
+        if v.units == 'K':
+            v -= 273
 
         lats, lons = latlon_coords(v)
         lats = to_np(lats)
@@ -108,8 +124,20 @@ def PlotFields(esquema, variable, tiempos, nivel_sfc_layer=0, dominio='02',
 # PlotFields(esquema='CLM4', variable='RAINC', tiempos=58,
 #            cmap='YlGnBu', escala=np.linspace(0,100,11), extend='max')
 ########################################################################################################################
+
+def Crop_LonLat(lonlat, min, max):
+    """
+    Para seleccionar un subdominio dentro de los archivos xarray que devuelve wrf.getvar
+    (no se puede usar .sel debido a etc...)
+    """
+    return (lonlat >= min) & (lonlat <= max)
+########################################################################################################################
+
 def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
-                      dpi=200):
+                      dpi=200, nivel_sfc_layer=0,
+                      dominio_total=False,
+                      sub_dominio=False, sub_lats=None, sub_lons=None,
+                      ymin=None, ymax=None):
     # ------------------------------------------------------------------------------------------------------------------#
     files_dir = './tp_final/WRF_CLM4/'
     files_dir2 = './tp_final/WRF_Noah-MP/'
@@ -119,7 +147,6 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
     #Fecha y hora para nombre y titulos
     from datetime import datetime, timedelta
     datelist = [datetime(2015, 8, 4, 0) + timedelta(hours=h) for h in range(0, 67)]
-    #hours = ['0'+ str(datelist[h].day) + '/' + str(datelist[h].hour) + 'hs' for h in [0,10,20,30,40,50,60]]
     #------------------------------------------------------------------------------------------------------------------#
     #Seleccion de archivos wrfout segun el domino (d01 o d02) en la carpeta del esquema indicado
     file_list = glob.glob(files_dir + 'wrfout_d' + dominio + '_*')
@@ -135,7 +162,6 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
     ncfile = Dataset(file_list[0])
 
     # -----------------------------------------------------------------------------------------------------------------#
-    #Si se ingresa un solo punto latxlon
     try:
         len(lons_points)
     except:
@@ -143,6 +169,9 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
         lats_points = [lats_points]
 
     num_points = range(0,len(lons_points))
+    if dominio_total or sub_dominio:
+        num_points=range(0,1)
+
     for p in num_points:
         try:
             point_lon = lons_points[p]
@@ -169,28 +198,100 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
             v=getvar(ncfile1, variable)
 
             if variable != 'RAINC':
-                v1[ifile] = getvar(ncfile1, variable)[point_y, point_x]
-                v2[ifile] = getvar(ncfile2, variable)[point_y, point_x]
-                v3[ifile] = getvar(ncfile3, variable)[point_y, point_x]
+                if dominio_total:
+                    sub_dominio=False #para evitar problemas
+                    aux_v1 =  getvar(ncfile1, variable)
+                    if len(aux_v1.shape)>2:
+                        v1[ifile] = getvar(ncfile1, variable)[nivel_sfc_layer,:,:].mean()
+                        v2[ifile] = getvar(ncfile2, variable)[nivel_sfc_layer,:,:].mean()
+                        v3[ifile] = getvar(ncfile3, variable)[nivel_sfc_layer,:,:].mean()
+                    else:
+                        v1[ifile] = getvar(ncfile1, variable).mean()
+                        v2[ifile] = getvar(ncfile2, variable).mean()
+                        v3[ifile] = getvar(ncfile3, variable).mean()
 
+                elif sub_dominio:
+                    aux_v1 =  getvar(ncfile1, variable)
+                    aux_v1 = aux_v1.where(Crop_LonLat(aux_v1.XLAT, sub_lats[0], sub_lats[1]))
+                    aux_v1 = aux_v1.where(Crop_LonLat(aux_v1.XLONG, sub_lons[0], sub_lons[1]))
+
+                    aux_v2 = getvar(ncfile2, variable)
+                    aux_v2 = aux_v2.where(Crop_LonLat(aux_v2.XLAT, sub_lats[0], sub_lats[1]))
+                    aux_v2 = aux_v2.where(Crop_LonLat(aux_v2.XLONG, sub_lons[0], sub_lons[1]))
+
+                    aux_v3 = getvar(ncfile3, variable)
+                    aux_v3 = aux_v3.where(Crop_LonLat(aux_v3.XLAT, sub_lats[0], sub_lats[1]))
+                    aux_v3 = aux_v3.where(Crop_LonLat(aux_v3.XLONG, sub_lons[0], sub_lons[1]))
+
+                    if len(aux_v1.shape)>2:
+                        v1[ifile] = aux_v1[nivel_sfc_layer,:,:].mean()
+                        v2[ifile] = aux_v2[nivel_sfc_layer, :, :].mean()
+                        v3[ifile] = aux_v3[nivel_sfc_layer, :, :].mean()
+                        aux_v1 = aux_v1[0,:,:] # solo para graficar rectangulo
+                    else:
+                        v1[ifile] = aux_v1.mean()
+                        v2[ifile] = aux_v2.mean()
+                        v3[ifile] = aux_v3.mean()
+
+                else:
+                    aux_v1 =  getvar(ncfile1, variable)
+                    if len(aux_v1.shape)>2:
+                        v1[ifile] = getvar(ncfile1, variable)[nivel_sfc_layer, point_y, point_x]
+                        v2[ifile] = getvar(ncfile2, variable)[nivel_sfc_layer, point_y, point_x]
+                        v3[ifile] = getvar(ncfile3, variable)[nivel_sfc_layer, point_y, point_x]
+                    else:
+                        v1[ifile] = getvar(ncfile1, variable)[point_y, point_x]
+                        v2[ifile] = getvar(ncfile2, variable)[point_y, point_x]
+                        v3[ifile] = getvar(ncfile3, variable)[point_y, point_x]
             else:
-                v1[ifile] = getvar(ncfile1, variable).mean() + getvar(ncfile1, 'RAINNC').mean()
-                v2[ifile] = getvar(ncfile2, variable).mean() + getvar(ncfile2, 'RAINNC').mean()
-                v3[ifile] = getvar(ncfile3, variable).mean() + getvar(ncfile3, 'RAINNC').mean()
+                if dominio_total:
+                    sub_dominio=False #para evitar problemas
+                    v1[ifile] = getvar(ncfile1, variable).mean() + getvar(ncfile1, 'RAINNC').mean()
+                    v2[ifile] = getvar(ncfile2, variable).mean() + getvar(ncfile2, 'RAINNC').mean()
+                    v3[ifile] = getvar(ncfile3, variable).mean() + getvar(ncfile3, 'RAINNC').mean()
+
+                elif sub_dominio:
+                    aux_v1 = getvar(ncfile1, variable) + getvar(ncfile1, 'RAINNC')
+                    aux_v1 = aux_v1.where(Crop_LonLat(aux_v1.XLAT, sub_lats[0], sub_lats[1]))
+                    aux_v1 = aux_v1.where(Crop_LonLat(aux_v1.XLONG, sub_lons[0], sub_lons[1]))
+                    v1[ifile] = aux_v1.mean()
+
+                    aux_v2 = getvar(ncfile2, variable) + getvar(ncfile2, 'RAINNC')
+                    aux_v2 = aux_v2.where(Crop_LonLat(aux_v2.XLAT, sub_lats[0], sub_lats[1]))
+                    aux_v2 = aux_v2.where(Crop_LonLat(aux_v2.XLONG, sub_lons[0], sub_lons[1]))
+                    v2[ifile] = aux_v2.mean()
+
+                    aux_v3 = getvar(ncfile3, variable) + getvar(ncfile3, 'RAINNC')
+                    aux_v3 = aux_v3.where(Crop_LonLat(aux_v3.XLAT, sub_lats[0], sub_lats[1]))
+                    aux_v3 = aux_v3.where(Crop_LonLat(aux_v3.XLONG, sub_lons[0], sub_lons[1]))
+                    v3[ifile] = aux_v3.mean()
+
+                else:
+                    v1[ifile] = getvar(ncfile1, variable)[point_y, point_x] + getvar(ncfile1, 'RAINNC')[point_y, point_x]
+                    v2[ifile] = getvar(ncfile2, variable)[point_y, point_x] + getvar(ncfile2, 'RAINNC')[point_y, point_x]
+                    v3[ifile] = getvar(ncfile3, variable)[point_y, point_x] + getvar(ncfile3, 'RAINNC')[point_y, point_x]
+
 
             time[ifile] = getvar(ncfile3, 'times')
+
         time = (time - time[0]) / 3600.0e9
         lats, lons = latlon_coords(ter)
         lats = to_np(lats)
         lons = to_np(lons)
 
-        fig = plt.figure(figsize=(11, 6), dpi=dpi)
+        fig = plt.figure(figsize=(11, 5.5), dpi=dpi)
         crs_latlon = ccrs.PlateCarree()
         ax1 = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=0))
         plot_ter = to_np(ter)
         plot_ter[plot_ter <= 1.0] = np.nan
         ax1.contourf(lons, lats, plot_ter, levels=np.linspace(-100, 250, 1000), cmap='terrain', extend='max')
-        ax1.plot(point_lon, point_lat, 'o', color='r')
+        if (dominio_total==False) and (sub_dominio==False):
+            ax1.plot(point_lon, point_lat, 'o', color='r')
+        elif sub_dominio:
+            aux = aux_v1.where(np.isnan(aux_v1),1,0)
+            ax1.contourf(aux.XLONG, aux.XLAT, aux.values, levels=[0,1], transform=crs_latlon,
+                         cmap='Reds', alpha=0.7)
+
         ax1.set_extent([-60, -57, -33, -36.5], crs_latlon)
         ax1.add_feature(cartopy.feature.LAND, facecolor='lightgrey')
         ax1.add_feature(cartopy.feature.COASTLINE)
@@ -203,6 +304,8 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
         ax1.yaxis.set_major_formatter(lat_formatter)
         ax1.set_title('Ubicacion del meteograma')
         ax1.grid()
+        ax1.tick_params(axis='both', which='major', labelsize=8)
+        ax1.tick_params(axis='both', which='minor', labelsize=8)
 
         import matplotlib.dates as mdates
         divider = make_axes_locatable(ax1)
@@ -214,6 +317,10 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
         ax2.plot(datelist, v3, 'g.-', label='RUC')
         fmt = mdates.DateFormatter('%d/%Hhs')
         ax2.xaxis.set_major_formatter(fmt)
+        ax2.tick_params(axis='both', which='major', labelsize=8)
+        ax2.tick_params(axis='both', which='minor', labelsize=8)
+        if isinstance(ymin, int):
+            ax2.set_ylim(ymin, ymax)
         ax2.grid()
 
         if variable == 'RAINC':
@@ -224,14 +331,22 @@ def PlotTimeEvolution(variable, lons_points, lats_points, dominio='02',
             v_name_fig = v.name
 
         title = v_name + ' ' + '(' + v.units + ')  '
-        name_fig = v_name_fig + '_'
+        if dominio_total:
+            name_fig = v_name_fig + '_' + 'total'
+        elif sub_dominio:
+            name_fig = v_name_fig + '_' + 'sub_dominio_' + str(sub_lons[0]) + str(sub_lats[0])
+        else:
+            name_fig = v_name_fig + '_' + str(point_lat) + str(point_lon)
         ax2.set_title('Meteograma: ' + title)
         ax2.legend()
 
         plt.tight_layout()
-        plt.savefig(out_dir + 'TimeEvol_' + name_fig + str(point_lat) + str(point_lon) + '.jpg')
-########################################################################################################################
-#
+        plt.savefig(out_dir + 'TimeEvol_' + name_fig + '.jpg')
+
 # PlotTimeEvolution(variable='LH',
-#                   lons_points=[-59.4],# -58.8, -59.4, -57.6],
-#                   lats_points = [-34.2])#, -34.2])#, -35, -35.4])
+#                   lons_points=[-59.4, -58.8],# -59.4, -57.6],
+#                   lats_points = [-34.2, -34.2],#, -35, -35.4])
+#                   dominio_total=False,
+#                   sub_dominio=True, sub_lats=[-35,-34],sub_lons=[-59,-57],
+#                   ymin=0, ymax=150)
+########################################################################################################################
